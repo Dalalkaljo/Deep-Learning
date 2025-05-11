@@ -1,0 +1,96 @@
+import pandas as pd
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+import numpy as np
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import precision_recall_curve
+
+# Load data
+df = pd.read_csv('C:\\Users\\UserName\\FolderName\\healthcare-dataset-stroke-data.csv')
+
+# Check for NaN values
+print(df.isnull().sum())
+
+# Remove rows where 'bmi' is null
+df_clean = df.dropna(subset=['bmi'])
+
+# Check for NaN values again
+print(df_clean.isnull().sum())
+
+# Convert categorical variables to numerical using one-hot encoding
+CATEGORICAL_COLUMNS = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
+df_clean = pd.get_dummies(df_clean, columns=CATEGORICAL_COLUMNS, drop_first=True)
+
+# Define features and target variable
+x = df_clean.drop(['stroke', 'id'], axis=1)  # Ensure 'id' is in the DataFrame
+y = df_clean['stroke']
+
+# Split the data
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=9)
+
+# Define the model
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(30, activation='relu', input_shape=(x_train.shape[1],)),
+    tf.keras.layers.Dense(10, activation='relu'),
+    tf.keras.layers.Dense(1, activation='sigmoid')  # Use 1 neuron for binary classification
+])
+
+# Compile the model
+model.compile(optimizer='adam',
+              loss='binary_crossentropy',  # Use binary_crossentropy for binary classification
+              metrics=['accuracy'])
+
+# Train the model
+model.fit(x_train, y_train, epochs=50, batch_size=32)
+
+# Evaluate the model
+model.evaluate(x_test, y_test)
+
+
+# Make predictions on the evaluation set
+y_pred_prob = model.predict(x_test)
+y_pred = (y_pred_prob > 0.5).astype(int)  # Convert probabilities to binary predictions
+# Create confusion matrix
+cm = confusion_matrix(y_test, y_pred)
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Not Stroke', 'Stroke'], yticklabels=['Not Stroke', 'Stroke'])
+plt.ylabel('Actual')
+plt.xlabel('Predicted')
+plt.title('Confusion Matrix')
+plt.show()
+
+
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob)
+roc_auc = auc(fpr, tpr)
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='blue', lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
+plt.plot([0, 1], [0, 1], color='red', lw=2, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic')
+plt.legend(loc="lower right")
+plt.show()
+
+precision, recall, _ = precision_recall_curve(y_test, y_pred_prob)
+plt.figure(figsize=(8, 6))
+plt.plot(recall, precision, marker='.')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Curve')
+plt.show()
+
+#Featues importance
+importances = model.layers[0].get_weights()[0]  # Get weights from the first layer
+feature_importance = np.mean(np.abs(importances), axis=1)
+plt.figure(figsize=(10, 6))
+plt.barh(range(len(feature_importance)), feature_importance)
+plt.yticks(range(len(feature_importance)), x_train.columns)
+plt.xlabel('Feature Importance')
+plt.title('Feature Importance from the Model')
+plt.show() 
