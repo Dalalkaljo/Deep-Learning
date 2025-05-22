@@ -1,0 +1,120 @@
+import pandas as pd
+df = pd.read_csv("C:\\Users\\DELL\\Documents\\Courses\\heart.csv")
+
+from sklearn.model_selection import train_test_split
+x, y = df.drop('target', axis = 1), df['target']
+x_train, x_test, y_train, y_test = train_test_split(x,y,test_size = 0.4, random_state = 9)
+
+
+### Scale-Insensetive
+from sklearn.ensemble import RandomForestClassifier
+forest = RandomForestClassifier()
+forest.fit(x_train, y_train)
+
+from sklearn.naive_bayes import GaussianNB
+nb_clf = GaussianNB()
+nb_clf.fit(x_train, y_train)
+
+from sklearn.ensemble import GradientBoostingClassifier 
+gb_clf = GradientBoostingClassifier()
+gb_clf.fit(x_train, y_train)
+
+
+
+###scale-sensetive
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+x_train_scaled = scaler.fit_transform(x_train)
+x_test_scaled = scaler.transform(x_test)
+
+from sklearn.neighbors import KNeighborsClassifier
+knn = KNeighborsClassifier()
+knn.fit(x_train_scaled, y_train)
+
+from sklearn.linear_model import LogisticRegression
+log = LogisticRegression()
+log.fit(x_train_scaled, y_train)
+
+from sklearn.svm import SVC
+svc = SVC()
+svc.fit(x_train_scaled, y_train)
+
+
+svc.score(x_test, y_test)
+#0.48
+knn.score(x_test, y_test)
+#0.64
+log.score(x_test, y_test)
+#0.50
+gb_clf.score(x_test, y_test)
+#0.97
+nb_clf.score(x_test, y_test)
+#0.84
+forest.score(x_test, y_test)
+#0.98
+
+
+from sklearn.metrics import recall_score
+y_preds = forest.predict(x_test)
+print('Forest:', recall_score(y_test, y_preds))
+#0.98
+
+y_preds = nb_clf.predict(x_test)
+print('NB:', recall_score(y_test, y_preds))
+#0.90
+
+y_preds = gb_clf.predict(x_test)
+print('GB:', recall_score(y_test, y_preds))
+#0.98
+
+y_preds = knn.predict(x_test_scaled)
+print('knn:', recall_score(y_test, y_preds))
+#0.87
+
+y_preds = svc.predict(x_test_scaled)
+print('svc:', recall_score(y_test, y_preds))
+#0.95
+
+y_preds = log.predict(x_test_scaled)
+print('log:', recall_score(y_test, y_preds))
+#0.92
+
+
+import matplotlib.pyplot as plt 
+from sklearn.metrics import roc_curve, roc_auc_score
+y_probs = forest.predict_proba(x_test) [:, 1]
+
+fbr, tbr, thresholds = roc_curve(y_test, y_probs) 
+plt.plot(fbr, tbr)
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate (recall)')
+plt.title('ROC Curve')
+plt.show()
+
+roc_auc_score(y_test, y_probs)
+#0.9993
+
+from sklearn.model_selection import GridSearchCV
+
+param_grid = {
+    'n_estimators' : [100, 200, 500],
+    'max_depth': [None, 10, 20 , 30],
+    'min_samples_split' : [2,5,10],
+    'min_samples_leaf' : [1,2,4],
+    'max_features': ['sqrt', 'log2', None],
+    }
+
+forest = RandomForestClassifier(n_jobs=-1, random_state=9)
+grid_search = GridSearchCV(forest, param_grid, cv=3, n_jobs= -1, verbose=2)
+grid_search.fit(x_train, y_train)
+
+best_forest = grid_search.best_estimator_
+
+
+import numpy as np
+feature_importances = best_forest.feature_importances_
+features = best_forest.feature_names_in_
+
+sorted_idx = np.argsort(feature_importances)
+sorted_features = features[sorted_idx]
+sortes_importances = feature_importances[sorted_idx]
