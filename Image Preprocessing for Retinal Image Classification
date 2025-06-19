@@ -1,0 +1,106 @@
+import os
+import cv2
+import numpy as np
+from tkinter import filedialog, Tk
+from tkinter import simpledialog, messagebox
+
+# Function to convert grayscale image to color using a colormap
+def grs2rgb(img, cmap=None):
+    # Check the arguments
+    if img is None:
+        raise ValueError('Specify the name or the matrix of the image')
+
+    if cmap is None:
+        cmap = cv2.applyColorMap(np.arange(64).astype(np.uint8), cv2.COLORMAP_HOT) / 255.0  # Normalize to [0, 1]
+        
+    if cmap.shape[1] != 3:
+        raise ValueError('Colormap matrix must contain 3 columns')
+        
+    # Read the image if it's a file path
+    if isinstance(img, str):
+        a = cv2.imread(img, cv2.IMREAD_GRAYSCALE)
+    elif isinstance(img, np.ndarray):
+        a = img
+    else:
+        raise ValueError('Image format: must be name or matrix')
+
+    # Calculate the indices of the colormap matrix
+    a = a.astype(float)
+    a[a == 0] = 1  # Needed to produce nonzero index of the colormap matrix
+    ci = np.ceil(a * (len(cmap) - 1) / np.max(a)).astype(int)  # Indices for colormap
+
+    # Colors in the new image
+    il, iw = a.shape
+    r = np.zeros((il, iw), dtype=float)
+    g = np.zeros((il, iw), dtype=float)
+    b = np.zeros((il, iw), dtype=float)
+    
+    r[:] = cmap[ci, 0]
+    g[:] = cmap[ci, 1]
+    b[:] = cmap[ci, 2]
+    
+    # New image
+    res = np.zeros((il, iw, 3), dtype=float)
+    res[:, :, 0] = r
+    res[:, :, 1] = g
+    res[:, :, 2] = b
+    
+    return res
+
+# Hide the root window
+root = Tk()
+root.withdraw()
+# Select the specific database that contains the images to be pre-processed.
+myFolder = filedialog.askdirectory(title="Select Image Directory")
+
+# Get a list of all files in the folder with the desired file name pattern.
+image_formats = ['*.jpg', '*.png', '*.jpeg', '*.bmp', '*.tiff', 'other']
+selected_format = simpledialog.askstring("Image format - Database", "Select image format (e.g., *.jpg):")
+
+if selected_format == 'other':
+    selected_format = simpledialog.askstring("Format", "Enter the format to search (e.g., *.etc):")
+    file_pattern = os.path.join(myFolder, selected_format)
+else:
+    file_pattern = os.path.join(myFolder, selected_format)
+    
+# Get the list of files matching the pattern
+theFiles = [f for f in os.listdir(myFolder) if f.endswith(selected_format.split('*')[-1])]
+
+# Select processing option
+options = ['Resize to 227x227px', 'Add colormap to grayscale image', 'Cropping black areas - Images']
+ind = simpledialog.askinteger("Select a function", "Select an option (1-3):\n1. Resize\n2. Colormap\n3. Crop")
+
+for file_name in theFiles:
+    full_file_name = os.path.join(myFolder, file_name)
+    print(f'Now reading {full_file_name}')
+    
+    # This section allows resizing the images
+    if ind == 1:
+        image_array = cv2.imread(full_file_name)
+        gamma = cv2.resize(image_array, (227, 227))
+        cv2.imwrite(full_file_name, gamma)
+    
+    # This section allows adding a colormap to the grayscale image
+    elif ind == 2:
+        image_array = cv2.imread(full_file_name)
+        gray_image = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
+        colormap_image = grs2rgb(gray_image)  # Use the colormap function
+        cv2.imwrite(full_file_name, (colormap_image * 255).astype(np.uint8))  # Save as uint8
+
+    # This section allows cropping the black border of the images
+    elif ind == 3:
+        image_color = cv2.imread(full_file_name)
+        image_gray = cv2.cvtColor(image_color, cv2.COLOR_BGR2GRAY)
+        _, binary_image = cv2.threshold(image_gray, 1, 255, cv2.THRESH_BINARY)
+        coords = np.column_stack(np.where(binary_image > 0))
+        top_row, bottom_row = coords[:, 0].min(), coords[:, 0].max()
+        left_column, right_column = coords[:, 1].min(), coords[:, 1].max()
+        cropped_image = image_color[top_row:bottom_row + 1, left_column:right_column + 1]
+        cv2.imwrite(full_file_name, cropped_image)
+# Ask if the user wants to open the image folder
+answer = messagebox.askyesno("Open Image Folder", "Open the folder of images?")
+if answer:
+    os.startfile(myFolder)
+else:
+    print("Goodbye.")
+        
