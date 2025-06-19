@@ -1,0 +1,162 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms, models
+from torch.utils.data import DataLoader, random_split
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, recall_score
+import seaborn as sns
+
+
+# Paths and parameters
+data_dir = 'C:/Users/DELL/Desktop/Data-Train'
+batch_size = 30
+num_epochs = 12
+learning_rate = 1e-4
+train_ratio = 0.8
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# ImageNet normalization values for pretrained models
+normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+
+# Data augmentation for training, similar to MATLAB's imageDataAugmenter
+train_transform = transforms.Compose([
+    transforms.Resize((227, 227)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(15),  # Rotate images by up to 15 degrees
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+    transforms.RandomAffine(degrees=0, translate=(30/227, 30/227)),  # Approximate ±30 pixels translation
+    transforms.ToTensor(),
+    normalize,
+])
+
+# Validation transform: just resize and normalize
+val_transform = transforms.Compose([
+    transforms.Resize((227, 227)),
+    transforms.ToTensor(),
+    normalize,
+])
+
+# Load the full dataset from folder with labels from folder names
+full_dataset = datasets.ImageFolder(root=data_dir, transform=None)
+
+# Split indices for train and validation
+num_train = int(train_ratio * len(full_dataset))
+num_val = len(full_dataset) - num_train
+train_dataset, val_dataset = random_split(full_dataset, [num_train, num_val])
+
+# Assign transforms after split
+train_dataset.dataset.transform = train_transform
+val_dataset.dataset.transform = val_transform
+
+# Data loaders
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+
+# Load pretrained AlexNet
+model = models.alexnet(pretrained=True)
+
+#model = models.alexnet()
+#model.load_state_dict(torch.load('path_to_downloaded_weights.pth'))
+
+# Freeze all layers except the classifier's last layer
+for param in model.features.parameters():
+    param.requires_grad = False
+
+# Replace classifier's final layer with new fully connected layer fitting num classes
+num_classes = len(full_dataset.classes)
+
+# AlexNet classifier is Sequential with:
+# 0: Dropout
+# 1: Linear(9216, 4096)
+# 2: ReLU
+# 3: Dropout
+# 4: Linear(4096, 4096)
+# 5: ReLU
+# 6: Linear(4096, 1000)
+# We'll replace the last Linear(4096, 1000) with Linear(4096, num_classes)
+model.classifier[6] = nn.Linear(in_features=4096, out_features=num_classes)
+
+# Send model to device
+model = model.to(device)
+
+# Define loss and optimizer with learning rate factors similar to MATLAB's WeightLearnRateFactor=20, BiasLearnRateFactor=20
+# These factors are not directly supported in PyTorch; we simulate by increasing LR for classifier parameters
+base_params = [param for name, param in model.named_parameters() if 'classifier.6' not in name]
+classifier_params = model.classifier[6].parameters()
+
+optimizer = optim.Adam([
+    {'params': base_params},
+    {'params': classifier_params, 'lr': learning_rate * 20}
+], lr=learning_rate)
+
+"""optimizer = optim.SGD([
+    {'params': base_params},
+    {'params': classifier_params, 'lr': learning_rate * 20}
+], lr=learning_rate, momentum=0.9)
+"""
+criterion = nn.CrossEntropyLoss()
+
+# Learning rate scheduler
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.5)
+
+# Training loop
+model.train()
+for epoch in range(num_epochs):
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        optimizer.zero_grad()
+
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item() * inputs.size(0)
+
+    epoch_loss = running_loss / len(train_loader.dataset)
+    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss:.4f}")
+    
+    # Step the scheduler
+    scheduler.step(epoch_loss)
+
+# Validation
+model.eval()
+correct = 0
+total = 0
+all_preds = []
+all_labels = []
+with torch.no_grad():
+    for inputs, labels in val_loader:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+        outputs = model(inputs)
+        _, preds = torch.max(outputs, 1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+accuracy = correct / total
+print(f"Validation Accuracy: {accuracy*100:.2f}%")
+
+# Save the trained model   81.54%
+torch.save(model.state_dict(), 'netTransfer5.pth')
+
+
+# Calculate recall
+recall = recall_score(all_labels, all_preds, average='macro')
+print(f"Validation Recall (macro-average): {recall*100:.2f}%")
+###Validation Recall (macro-average): 69.40%
+
+# Compute confusion matrix
+conf_matrix = confusion_matrix(all_labels, all_preds)
+# Plot confusion matrix
+plt.figure(figsize=(10, 8))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', 
+            xticklabels=full_dataset.classes, yticklabels=full_dataset.classes)
+plt.ylabel('True label')
+plt.xlabel('Predicted')
